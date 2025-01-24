@@ -1,0 +1,47 @@
+# User-specific files
+*.user
+*.userosscache
+*.suo
+*.userprefs
+
+# Build results
+[Dd]ebug/
+[Dd]ebugPublic/
+[Dd]ist/
+[Dd]eploy/
+bin/
+obj/
+
+# VSCode config files
+.vscode/
+
+# ASP.NET Core settings
+appsettings.Development.json
+appsettings.Production.json
+
+# NPM packages
+node_modules/
+
+# Temporary files
+*.tmp
+*.log
+*.swp
+.idea/
+
+# Visual Studio for Mac
+.vscode/
+
+# .NET SDK and runtime
+.global.json
+
+# Publish directory
+publish/
+
+# Blazor WebAssembly build files
+wwwroot/_framework/
+
+# Mac-specific files
+.DS_Store
+
+# Windows Installer files
+Thumbs.db

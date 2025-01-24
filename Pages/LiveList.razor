@@ -1,0 +1,380 @@
+@page "/livelist"
+@inject IJSRuntime JS
+@using System.Reflection;
+@using System.Text.Json.Serialization;
+
+<style>
+    .itemMain {
+        border-top: 1px solid black;
+        line-height: normal;
+        background: rgba(0, 0, 0, 0.06);
+    }
+    .itemMain > span {
+        background: rgba(0, 0, 0, 0.06);
+        white-space: nowrap;
+    }
+    .text-red {
+        color: darkred;
+        font-weight: 600;
+    }
+    .text-green {
+        color: darkgreen;
+        font-weight: 800;
+    }
+</style>
+@* Dynamic Filter Inputs *@
+<div>
+    <button @onclick="ClearFilters">Clear</button>
+    <button @onclick="ToggleFilters">@(filterToggleActive ? "filters are on" : "filters are off")</button>
+    <input @bind="filterText" @bind:event="oninput" placeholder="Filter by name" />
+    <input @bind="itemCostFilter_min_filterVal" @bind:event="oninput" placeholder="min Item Cost" />
+    <input @bind="itemCostFilter_max_filterVal" @bind:event="oninput" placeholder="max Item Cost" />
+    <input @bind="LastSales_freq_dmarket_Offer_raw_filterVal" @bind:event="oninput" placeholder="LastSales freq (min)" />
+    <br>
+    <input @bind="buySkinportMinProfit_percent_filterVal" @bind:event="oninput" placeholder="skinport buy diff %" />
+    <input @bind="sellDmarketMinProfit_percent_filterVal" @bind:event="oninput" placeholder="dmarketMinProfit%" />
+    <input @bind="sellBuff163MinProfit_percent_filterVal" @bind:event="oninput" placeholder="buffMinProfit%" />
+    <input @bind="sellSkinportMinProfit_percent_filterVal" @bind:event="oninput" placeholder="skinportMinProfit%" />
+    <br>
+    <input @bind="buySkinportMinProfit_dollar_filterVal" @bind:event="oninput" placeholder="skinport buy diff $" />
+    <input @bind="sellDmarketMinProfit_dollar_filterVal" @bind:event="oninput" placeholder="dmarketMinProfit$" />
+    <input @bind="sellBuff163MinProfit_dollar_filterVal" @bind:event="oninput" placeholder="buffMinProfit$" />
+    <input @bind="sellSkinportMinProfit_dollar_filterVal" @bind:event="oninput" placeholder="skinportMinProfit$" />
+</div>
+
+<Virtualize Items="@FilteredItems" Context="item" TItem="Item">
+    <div class="itemMain">
+        <h5><a href="@item.message.data.saleURL">@item.market_hash_name</a> | $@Math.Round(item.skinportSalePriceAud / 1.1, 2) | $@item.skinportSalePriceAud</h5>
+
+        <span>
+            @ConvertTimestampToReadableFormat(@item.reqTimestamp) <strong>DMarket Sale Frequency:</strong> @item.LastSales_freq_dmarket_Offer
+        </span><br>
+        <span>
+            <strong>DMarket Prices:</strong>  (@((item.message.data.msgTimestamp - item.timestamp_dmarket) / 1000) s) Buy: @item.buy_dmarket_AUD, Sell: @item.sell_dmarket_AUD 
+            <span class="@DetermineCssClass(item.sell_dmarket_AUD-item.skinportSalePriceAud)">
+                (@Math.Round(item.sell_dmarket_AUD-item.skinportSalePriceAud, 2) / @Math.Round((item.sell_dmarket_AUD-item.skinportSalePriceAud)/item.skinportSalePriceAud*100, 2)%)
+            </span>, Tradable Sell: @item.sell_dmarketTradable_AUD 
+            <span class="@DetermineCssClass(item.sell_dmarketTradable_AUD-item.skinportSalePriceAud)">
+                (@Math.Round(item.sell_dmarketTradable_AUD-item.skinportSalePriceAud, 2) / @Math.Round((item.sell_dmarketTradable_AUD-item.skinportSalePriceAud)/item.skinportSalePriceAud*100, 2)%)
+            </span>
+        </span><br>
+        <span>
+            <strong>Buff163 Prices:</strong> (@((item.message.data.msgTimestamp - item.timestamp_buff) / 1000) s) Buy: @item.buy_buff163_AUD, Sell: @item.sell_buff163_AUD 
+            <span class="@DetermineCssClass(item.sell_buff163_AUD-item.skinportSalePriceAud)">
+                (@Math.Round(item.sell_buff163_AUD-item.skinportSalePriceAud, 2) / @Math.Round((item.sell_buff163_AUD-item.skinportSalePriceAud)/item.skinportSalePriceAud*100, 2)%)
+            </span>
+        </span><br>
+        <span>
+            <strong>Skinport Prices:</strong> (@((item.message.data.msgTimestamp - item.timestamp_skinport) / 1000) s) Buy: @item.buy_skinport_AUD<span class="@DetermineCssClass(item.buy_skinport_AUD-item.skinportSalePriceAud)">
+                (@Math.Round(item.buy_skinport_AUD-item.skinportSalePriceAud, 2) / @Math.Round((item.buy_skinport_AUD-item.skinportSalePriceAud)/item.skinportSalePriceAud*100, 2)%)
+            </span>, Sell: @item.sell_skinport_AUD 
+            <span class="@DetermineCssClass(item.sell_skinport_AUD-item.skinportSalePriceAud)">
+                (@Math.Round(item.sell_skinport_AUD-item.skinportSalePriceAud, 2) / @Math.Round((item.sell_skinport_AUD-item.skinportSalePriceAud)/item.skinportSalePriceAud*100, 2)%)
+            </span>, Tradable Sell: @item.sell_skinportTradable_AUD 
+            <span class="@DetermineCssClass(item.sell_skinportTradable_AUD-item.skinportSalePriceAud)">
+                (@Math.Round(item.sell_skinportTradable_AUD-item.skinportSalePriceAud, 2) / @Math.Round((item.sell_skinportTradable_AUD-item.skinportSalePriceAud)/item.skinportSalePriceAud*100, 2)%)
+            </span>
+        </span>
+    </div>
+</Virtualize>
+
+@code {
+    private List<Item> items = new List<Item>();
+    private List<Item> FilteredItems => items.Where(FilterCondition).ToList();
+
+    private dynamic message; 
+    private string filterText = string.Empty;
+    private bool filterToggleActive = true;
+
+    private string itemCostFilter_min_filterVal = string.Empty;
+    private string itemCostFilter_max_filterVal = string.Empty;
+
+    private string LastSales_freq_dmarket_Offer_raw_filterVal = "720";
+
+    private string buySkinportMinProfit_percent_filterVal = "0";
+
+    private string sellDmarketMinProfit_percent_filterVal = string.Empty;
+    private string sellBuff163MinProfit_percent_filterVal = string.Empty;
+    private string sellSkinportMinProfit_percent_filterVal = "1";
+
+    private string buySkinportMinProfit_dollar_filterVal = string.Empty;
+
+    private string sellDmarketMinProfit_dollar_filterVal = string.Empty;
+    private string sellBuff163MinProfit_dollar_filterVal = string.Empty;
+    private string sellSkinportMinProfit_dollar_filterVal = string.Empty;
+
+    protected override async Task OnInitializedAsync()
+    {
+        message = await GetMessageFromWebSocket();
+        await JS.InvokeVoidAsync("connectWebSocket", DotNetObjectReference.Create(this));
+    }
+
+    private async Task<dynamic> GetMessageFromWebSocket()
+    {
+        return await Task.FromResult(new
+        {
+            data = new
+            {
+                msgTimestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()
+            }
+        });
+    }
+
+    private bool FilterCondition(Item item)
+    {
+        if (!filterToggleActive) {
+            return true;
+        }
+
+        if (!item.market_hash_name.Contains(filterText, StringComparison.OrdinalIgnoreCase))
+        {
+            return false;
+        }
+
+        if (!CheckItemCostFilter_min(itemCostFilter_min_filterVal, item.skinportSalePriceAud))
+        {
+            return false;
+        }
+
+        if (!CheckItemCostFilter_max(itemCostFilter_max_filterVal, item.skinportSalePriceAud))
+        {
+            return false;
+        }
+
+        if (!CheckFrequencyFilter(LastSales_freq_dmarket_Offer_raw_filterVal, item.LastSales_freq_dmarket_Offer_raw))
+        {
+            return false;
+        }
+
+        if (!CheckProfitFilter_Percent(buySkinportMinProfit_percent_filterVal, item.buy_skinport_AUD, item.skinportSalePriceAud))
+        {
+            return false;
+        }
+
+        if (!CheckProfitFilter_Percent(sellDmarketMinProfit_percent_filterVal, item.sell_dmarketTradable_AUD, item.skinportSalePriceAud))
+        {
+            return false;
+        }
+
+        if (!CheckProfitFilter_Percent(sellBuff163MinProfit_percent_filterVal, item.sell_buff163_AUD, item.skinportSalePriceAud))
+        {
+            return false;
+        }
+
+        if (!CheckProfitFilter_Percent(sellSkinportMinProfit_percent_filterVal, item.sell_skinportTradable_AUD, item.skinportSalePriceAud))
+        {
+            return false;
+        }
+
+        if (!CheckProfitFilter_Dollar(buySkinportMinProfit_dollar_filterVal, item.buy_skinport_AUD, item.skinportSalePriceAud))
+        {
+            return false;
+        }
+
+        if (!CheckProfitFilter_Dollar(sellDmarketMinProfit_dollar_filterVal, item.sell_dmarketTradable_AUD, item.skinportSalePriceAud))
+        {
+            return false;
+        }
+
+        if (!CheckProfitFilter_Dollar(sellBuff163MinProfit_dollar_filterVal, item.sell_buff163_AUD, item.skinportSalePriceAud))
+        {
+            return false;
+        }
+
+        if (!CheckProfitFilter_Dollar(sellSkinportMinProfit_dollar_filterVal, item.sell_skinportTradable_AUD, item.skinportSalePriceAud))
+        {
+            return false;
+        }
+
+        return true;
+    }
+
+    private bool CheckItemCostFilter_min(string filterValue, double actualValue)
+    {
+        if (string.IsNullOrEmpty(filterValue))
+        {
+            return true;
+        }
+
+        if (!double.TryParse(filterValue, out double minVal))
+        {
+            return false;
+        }
+
+        return actualValue >= minVal;
+    }
+
+    private bool CheckItemCostFilter_max(string filterValue, double actualValue)
+    {
+        if (string.IsNullOrEmpty(filterValue))
+        {
+            return true;
+        }
+
+        if (!double.TryParse(filterValue, out double maxVal))
+        {
+            return false;
+        }
+
+        return actualValue <= maxVal;
+    }
+
+    private bool CheckFrequencyFilter(string filterValue, double actualValue)
+    {
+        if (string.IsNullOrEmpty(filterValue))
+        {
+            return true;
+        }
+
+        if (!double.TryParse(filterValue, out double minFrequency))
+        {
+            return false;
+        }
+
+        return actualValue / 60 / 1000 < minFrequency;
+    }
+
+    private bool CheckProfitFilter_Percent(string filterValue, double sellPrice, double purchasePrice)
+    {
+        if (string.IsNullOrEmpty(filterValue))
+        {
+            return true;
+        }
+
+        if (!double.TryParse(filterValue, out double minProfit))
+        {
+            return false;
+        }
+
+        double profitPercent = (sellPrice - purchasePrice) / purchasePrice * 100;
+        return profitPercent > minProfit;
+    }
+
+    private bool CheckProfitFilter_Dollar(string filterValue, double sellPrice, double purchasePrice)
+    {
+        if (string.IsNullOrEmpty(filterValue))
+        {
+            return true;
+        }
+
+        if (!double.TryParse(filterValue, out double minProfit))
+        {
+            return false;
+        }
+
+        double profitDollar = (sellPrice - purchasePrice);
+        return profitDollar > minProfit;
+    }
+
+    private void ToggleFilters()
+    {
+        filterToggleActive = !filterToggleActive;
+    }
+
+    private void ClearFilters()
+    {
+        filterText = string.Empty;
+        itemCostFilter_min_filterVal = string.Empty;
+        itemCostFilter_max_filterVal = string.Empty;
+
+        LastSales_freq_dmarket_Offer_raw_filterVal = string.Empty;
+
+        buySkinportMinProfit_percent_filterVal = string.Empty;
+
+        sellSkinportMinProfit_percent_filterVal = string.Empty;
+        sellDmarketMinProfit_percent_filterVal = string.Empty;
+        sellBuff163MinProfit_percent_filterVal = string.Empty;
+
+        buySkinportMinProfit_dollar_filterVal = string.Empty;
+
+        sellSkinportMinProfit_dollar_filterVal = string.Empty;
+        sellDmarketMinProfit_dollar_filterVal = string.Empty;
+        sellBuff163MinProfit_dollar_filterVal = string.Empty;
+    }
+
+    string DetermineCssClass(double value) 
+    {
+        return value < 0 ? "text-red" : "text-green";
+    }
+
+    public string ConvertTimestampToReadableFormat(long reqTimestamp)
+    {
+
+        long seconds = reqTimestamp / 1000;
+
+        DateTimeOffset dateTimeOffset = DateTimeOffset.FromUnixTimeSeconds(seconds);
+
+        TimeZoneInfo sydneyTimeZone = TimeZoneInfo.FindSystemTimeZoneById("Australia/Sydney");
+
+        DateTimeOffset sydneyDateTimeOffset = TimeZoneInfo.ConvertTime(dateTimeOffset, sydneyTimeZone);
+
+        string formattedDateTime = sydneyDateTimeOffset.ToString("yyyy-MM-dd HH:mm:ss");
+
+        return formattedDateTime;
+    }
+
+    [JSInvokable]
+    public void AddItem(Item newItem)
+    {
+        items.Add(newItem);
+        InvokeAsync(StateHasChanged);
+    }
+
+    public class Data
+    {
+        public string saleURL { get; set; }
+        public string msgSource { get; set; }
+        public long msgTimestamp { get; set; }
+        public List<string> items { get; set; }
+        public List<string> forceUpdate { get; set; }
+        public bool forceRefresh { get; set; }
+    }
+
+    public class Message
+    {
+        public string msg { get; set; }
+        public Data data { get; set; }
+    }
+
+    public class Item
+    {
+        public string market_hash_name { get; set; }
+        public string marketplace { get; set; }
+        public long timestamp_dmarket { get; set; }
+        public double buy_dmarket_USD { get; set; }
+        public double buy_dmarketTradable_USD { get; set; }
+        public double sell_dmarket_USD { get; set; }
+        public double sell_dmarketTradable_USD { get; set; }
+        public double buy_dmarket_AUD { get; set; }
+        public double buy_dmarketTradable_AUD { get; set; }
+        public double sell_dmarket_AUD { get; set; }
+        public double sell_dmarketTradable_AUD { get; set; }
+        public int quantity_dmarket { get; set; }
+        public int quantity_dmarketTradable { get; set; }
+        public List<List<object>> lastSales_dmarket_Offer { get; set; }
+        public string LastSales_freq_dmarket_Offer { get; set; }
+        public long timestamp_skinport { get; set; }
+        public int quantity_skinport { get; set; }
+        public int quantity_skinportTradable { get; set; }
+        public double buy_skinport_EUR { get; set; }
+        public double buy_skinportTradable_EUR { get; set; }
+        public double skinport_rates_EUR { get; set; }
+        public double buy_skinport_AUD { get; set; }
+        public double buy_skinportTradable_AUD { get; set; }
+        public double sell_skinport_AUD { get; set; }
+        public double sell_skinportTradable_AUD { get; set; }
+        public string buff_goods_id { get; set; }
+        public double LastSales_freq_dmarket_Offer_raw { get; set; }
+        public long timestamp_buff { get; set; }
+        public double buy_buff163_CNY { get; set; }
+        public double sell_buff163_CNY { get; set; }
+        public double buy_buff163_AUD { get; set; }
+        public double sell_buff163_AUD { get; set; }
+        public int quantity_buff { get; set; }
+        public double RATE_CNY { get; set; }
+        public string buffId { get; set; }
+        public Message message { get; set; }
+        public long reqTimestamp { get; set; }
+        public double skinportSalePriceAud { get; set; }
+    }
+}
